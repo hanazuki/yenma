@@ -1,0 +1,14 @@
+[Unit]
+Description=YENMA milter for mail sender authentication
+Documentation=https://github.com/iij/yenma
+After=nss-lookup.target
+
+[Service]
+Type=forking
+PIDFile=/run/yenma/yenma.pid
+User=yenma
+RuntimeDirectory=yenma
+ExecStart=/usr/sbin/yenma -c /etc/yenma.conf
+
+[Install]
+WantedBy=multi-user.target

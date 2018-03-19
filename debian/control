@@ -1,0 +1,29 @@
+Source: yenma
+Section: mail
+Priority: optional
+Maintainer: Kasumi Hanazuki <kasumi@rollingapple.net>
+Build-Depends:
+  debhelper (>= 10),
+  libssl-dev,
+  libldns-dev,
+  libmilter-dev,
+Standards-Version: 4.1.2
+Vcs-Git: git://github.com/iij/yenma
+Vcs-Browser: https://github.com/iij/yenma
+Homepage: http://enma.sourceforge.net/
+
+Package: yenma
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends},
+  libsauth0 (= ${binary:Version}),
+  adduser,
+  publicsuffix
+Description: milter program for the domain authentication technologies
+ YENMA authenticates sender's address with SPF, Sender ID, DKIM and DKIM
+ ADSP, then labels the result onto the Authentication-Results: field.
+
+Package: libsauth0
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: mail authentication library
+ This package contains mail authentication library for YENMA.

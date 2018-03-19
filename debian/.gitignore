@@ -1,0 +1,11 @@
+/generated
+/tmp
+/*.debhelper
+/debhelper-*
+/autoreconf.before
+/autoreconf.after
+/files
+/*.substvars
+
+/yenma
+/libsauth0
