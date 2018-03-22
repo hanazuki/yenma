@@ -1,0 +1,21 @@
+From: Kasumi Hanazuki <kasumi@rollingapple.net>
+Date: Tue, 20 Mar 2018 00:49:11 +0900
+Subject: Install yenma executable to /usr/sbin
+
+---
+ yenma/Makefile.am | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/yenma/Makefile.am b/yenma/Makefile.am
+index 9c38e75..05b6ad9 100644
+--- a/yenma/Makefile.am
++++ b/yenma/Makefile.am
+@@ -2,7 +2,7 @@
+ 
+ include $(top_srcdir)/Makefile.decl
+ 
+-libexec_PROGRAMS = yenma
++sbin_PROGRAMS = yenma
+ 
+ yenma_SOURCES =yenma.c yenmamfi.c yenmasession.c yenmaconfig.c yenmacontext.c yenmactrl.c \
+ 	authstats.c authresult.c validatedresult.c ipaddrblocktree.c rbtree.c resolverpool.c \

@@ -1,0 +1,238 @@
+From: Kasumi Hanazuki <kasumi@rollingapple.net>
+Date: Tue, 20 Mar 2018 00:50:09 +0900
+Subject: libsauth: OpenSSL 1.1 support
+
+This patch adds OpenSSL 1.1 support to libsauth while maintaining
+compatibility back to OpenSSL 0.9.8.
+
+* EVP_PKEY is now opaque. Use EVP_PKEY_id and EVP_PKEY_base_id to access
+  pkey->type and EVP_PKEY_type(pkey->type), resp.
+  These functions are available since OpenSSL 1.0.0.
+* EVP_MD_CTX is now opaque. Use EVP_MD_CTX_new and EVP_MD_CTX_free to
+  allocate/deallocate its instances.
+  These functions appear at OpenSSL 1.1.0.
+---
+ libsauth/base/openssl-evp-compat.h | 24 +++++++++++++++++++++++
+ libsauth/dkim/dkimdigester.c       | 40 ++++++++++++++++++++++----------------
+ libsauth/dkim/dkimpublickey.c      | 11 ++++++-----
+ 3 files changed, 53 insertions(+), 22 deletions(-)
+ create mode 100644 libsauth/base/openssl-evp-compat.h
+
+diff --git a/libsauth/base/openssl-evp-compat.h b/libsauth/base/openssl-evp-compat.h
+new file mode 100644
+index 0000000..293a916
+--- /dev/null
++++ b/libsauth/base/openssl-evp-compat.h
+@@ -0,0 +1,24 @@
++#ifndef OPENSSL_EVP_COMPAT_H
++
++#include <openssl/evp.h>
++
++#if OPENSSL_VERSION_NUMBER < 0x10000000L
++/* OpenSSL 1.0 introduces EVP_PKEY accessors */
++
++static inline int EVP_PKEY_id(const EVP_PKEY *pkey) {
++    return pkey->type;
++}
++
++static inline int EVP_PKEY_base_id(const EVP_PKEY *pkey) {
++    return EVP_PKEY_type(pkey->type);
++}
++#endif
++
++#if OPENSSL_VERSION_NUMBER < 0x10100000L
++/* OpenSSL 1.1 renames EVP_MD_CTX_{create,destroy} to EVP_MD_CTX_{new,free} */
++
++#define EVP_MD_CTX_new() EVP_MD_CTX_create()
++#define EVP_MD_CTX_free(ctx) EVP_MD_CTX_destroy((ctx))
++#endif
++
++#endif /* OPENSSL_EVP_COMPAT_H */
+diff --git a/libsauth/dkim/dkimdigester.c b/libsauth/dkim/dkimdigester.c
+index 0563377..1365052 100644
+--- a/libsauth/dkim/dkimdigester.c
++++ b/libsauth/dkim/dkimdigester.c
+@@ -28,6 +28,7 @@
+ #include "dkimlogger.h"
+ #include "xbuffer.h"
+ #include "strpairlist.h"
++#include "openssl-evp-compat.h"
+ #include "dkimsignature.h"
+ #include "dkimcanonicalizer.h"
+ #include "dkimdigester.h"
+@@ -35,8 +36,8 @@
+ struct DkimDigester {
+     const EVP_MD *digest_alg;
+     int pubkey_alg;
+-    EVP_MD_CTX header_digest;
+-    EVP_MD_CTX body_digest;
++    EVP_MD_CTX *header_digest;
++    EVP_MD_CTX *body_digest;
+     DkimCanonicalizer *canon;
+     bool keep_leading_header_space;
+     /// body length limit. sig-l-tag itself. -1 for unlimited.
+@@ -216,13 +217,13 @@ DkimDigester_new(DkimHashAlgorithm digest_alg,
+         DkimDigester_free(self);
+         return canon_stat;
+     }   // end if
+-    if (0 == EVP_DigestInit(&(self->header_digest), self->digest_alg)) {
++    if (!(self->header_digest = EVP_MD_CTX_new()) || 0 == EVP_DigestInit(self->header_digest, self->digest_alg)) {
+         DkimLogSysError("Digest Initialization (of header) failed");
+         DkimDigester_logOpenSSLErrors();
+         DkimDigester_free(self);
+         return DSTAT_SYSERR_NORESOURCE;
+     }   // end if
+-    if (0 == EVP_DigestInit(&(self->body_digest), self->digest_alg)) {
++    if (!(self->body_digest = EVP_MD_CTX_new()) || 0 == EVP_DigestInit(self->body_digest, self->digest_alg)) {
+         DkimLogSysError("Digest Initialization (of body) failed");
+         DkimDigester_logOpenSSLErrors();
+         DkimDigester_free(self);
+@@ -249,8 +250,13 @@ DkimDigester_free(DkimDigester *self)
+ 
+     (void) DkimDigester_closeC14nDump(self);
+     DkimCanonicalizer_free(self->canon);
+-    (void) EVP_MD_CTX_cleanup(&(self->header_digest));
+-    (void) EVP_MD_CTX_cleanup(&(self->body_digest));
++
++    if (self->header_digest) {
++        EVP_MD_CTX_free(self->header_digest);
++    }
++    if (self->body_digest) {
++        EVP_MD_CTX_free(self->body_digest);
++    }
+ 
+     // No need to clean up "self->digest_alg"
+ 
+@@ -292,7 +298,7 @@ DkimDigester_updateBodyChunk(DkimDigester *self, const unsigned char *buf, size_
+     }   // end if
+ 
+     if (0 < srclen) {
+-        if (0 == EVP_DigestUpdate(&self->body_digest, buf, srclen)) {
++        if (0 == EVP_DigestUpdate(self->body_digest, buf, srclen)) {
+             DkimLogSysError("Digest update (of body) failed");
+             DkimDigester_logOpenSSLErrors();
+             return DSTAT_SYSERR_DIGEST_UPDATE_FAILURE;
+@@ -363,7 +369,7 @@ DkimDigester_updateHeader(DkimDigester *self, const char *headerf, const char *h
+     // discard errors occurred in functions for debugging
+     (void) DkimDigester_dumpCanonicalizedHeader(self, canonbuf, canonsize);
+ 
+-    if (0 == EVP_DigestUpdate(&self->header_digest, canonbuf, canonsize)) {
++    if (0 == EVP_DigestUpdate(self->header_digest, canonbuf, canonsize)) {
+         DkimLogSysError("Digest update (of header) failed");
+         DkimDigester_logOpenSSLErrors();
+         return DSTAT_SYSERR_DIGEST_UPDATE_FAILURE;
+@@ -490,7 +496,7 @@ DkimDigester_updateSignatureHeader(DkimDigester *self, const DkimSignature *sign
+     (void) DkimDigester_dumpCanonicalizedHeader(self, canonbuf, canonsize);
+ 
+     // update digest
+-    if (0 == EVP_DigestUpdate(&self->header_digest, canonbuf, canonsize)) {
++    if (0 == EVP_DigestUpdate(self->header_digest, canonbuf, canonsize)) {
+         DkimLogSysError("Digest update (of signature header) failed");
+         DkimDigester_logOpenSSLErrors();
+         return DSTAT_SYSERR_DIGEST_UPDATE_FAILURE;
+@@ -527,9 +533,9 @@ DkimDigester_verifyMessage(DkimDigester *self, const InetMailHeaders *headers,
+ 
+     // check if the type of the public key is suitable for the algorithm
+     // specified by sig-a-tag of the DKIM-Signature header.
+-    if (publickey->type != self->pubkey_alg) {
++    if (EVP_PKEY_id(publickey) != self->pubkey_alg) {
+         DkimLogPermFail("Public key algorithm mismatch: signature=0x%x, pubkey=0x%x",
+-                        publickey->type, self->pubkey_alg);
++                        EVP_PKEY_id(publickey), self->pubkey_alg);
+         return DSTAT_PERMFAIL_PUBLICKEY_TYPE_MISMATCH;
+     }   // end if
+ 
+@@ -544,7 +550,7 @@ DkimDigester_verifyMessage(DkimDigester *self, const InetMailHeaders *headers,
+     if (DSTAT_OK != ret) {
+         return ret;
+     }   // end if
+-    if (0 == EVP_DigestFinal(&self->body_digest, md, &mdlen)) {
++    if (0 == EVP_DigestFinal(self->body_digest, md, &mdlen)) {
+         DkimLogSysError("Digest finish (of body) failed");
+         DkimDigester_logOpenSSLErrors();
+         return DSTAT_SYSERR_DIGEST_UPDATE_FAILURE;
+@@ -576,7 +582,7 @@ DkimDigester_verifyMessage(DkimDigester *self, const InetMailHeaders *headers,
+     const XBuffer *headerhash = DkimSignature_getSignatureValue(signature);
+     signbuf = (const unsigned char *) XBuffer_getBytes(headerhash);
+     signlen = XBuffer_getSize(headerhash);
+-    int vret = EVP_VerifyFinal(&self->header_digest, signbuf, signlen, publickey);
++    int vret = EVP_VerifyFinal(self->header_digest, signbuf, signlen, publickey);
+     // EVP_VerifyFinal() returns 1 for a correct signature, 0 for failure and -1 if some other error occurred.
+     switch (vret) {
+     case 1:    // the signature is correct
+@@ -617,9 +623,9 @@ DkimDigester_signMessage(DkimDigester *self, const InetMailHeaders *headers,
+     assert(NULL != privatekey);
+ 
+     // XXX signature と self の署名/ダイジェストアルゴリズムが一致しているか確認した方がいい
+-    if (privatekey->type != self->pubkey_alg) {
++    if (EVP_PKEY_id(privatekey) != self->pubkey_alg) {
+         DkimLogPermFail("Public key algorithm mismatch: signature=0x%x, privatekey=0x%x",
+-                        privatekey->type, self->pubkey_alg);
++                        EVP_PKEY_id(privatekey), self->pubkey_alg);
+         return DSTAT_PERMFAIL_PUBLICKEY_TYPE_MISMATCH;
+     }   // end if
+ 
+@@ -638,7 +644,7 @@ DkimDigester_signMessage(DkimDigester *self, const InetMailHeaders *headers,
+     unsigned char bodyhashbuf[EVP_MD_size(self->digest_alg)];   // EVP_MAX_MD_SIZE instead of EVP_MD_size() is safer(?)
+     unsigned int bodyhashlen;
+     bodyhashlen = EVP_MD_size(self->digest_alg);
+-    if (0 == EVP_DigestFinal(&self->body_digest, bodyhashbuf, &bodyhashlen)) {
++    if (0 == EVP_DigestFinal(self->body_digest, bodyhashbuf, &bodyhashlen)) {
+         DkimLogSysError("DigestFinal (of body) failed");
+         DkimDigester_logOpenSSLErrors();
+         return DSTAT_SYSERR_DIGEST_UPDATE_FAILURE;
+@@ -678,7 +684,7 @@ DkimDigester_signMessage(DkimDigester *self, const InetMailHeaders *headers,
+ 
+     unsigned char signbuf[EVP_PKEY_size(privatekey)];
+     unsigned int signlen;
+-    if (0 == EVP_SignFinal(&self->header_digest, signbuf, &signlen, privatekey)) {
++    if (0 == EVP_SignFinal(self->header_digest, signbuf, &signlen, privatekey)) {
+         DkimLogSysError("SignFinal (of body) failed");
+         DkimDigester_logOpenSSLErrors();
+         return DSTAT_SYSERR_DIGEST_UPDATE_FAILURE;
+diff --git a/libsauth/dkim/dkimpublickey.c b/libsauth/dkim/dkimpublickey.c
+index 8f4141d..235aa6f 100644
+--- a/libsauth/dkim/dkimpublickey.c
++++ b/libsauth/dkim/dkimpublickey.c
+@@ -36,6 +36,7 @@
+ #include "intarray.h"
+ #include "inetdomain.h"
+ #include "inetmailbox.h"
++#include "openssl-evp-compat.h"
+ #include "dnsresolv.h"
+ #include "dkim.h"
+ #include "dkimspec.h"
+@@ -395,20 +396,20 @@ DkimPublicKey_build(const DkimVerificationPolicy *policy, const char *keyval, co
+     // compare key type key-k-tag declared and stored in key-p-tag
+     switch (self->keytype) {
+     case DKIM_KEY_TYPE_RSA:
+-        if (EVP_PKEY_RSA != EVP_PKEY_type(self->pkey->type)) {
++        if (EVP_PKEY_RSA != EVP_PKEY_base_id(self->pkey)) {
+             DkimLogPermFail
+                 ("key-k-tag and key-p-tag doesn't match: domain=%s, keyalg=0x%x, keytype=0x%x",
+-                 domain, self->keytype, EVP_PKEY_type(self->pkey->type));
++                 domain, self->keytype, EVP_PKEY_base_id(self->pkey));
+             DkimPublicKey_free(self);
+             return DSTAT_PERMFAIL_PUBLICKEY_TYPE_MISMATCH;
+         }   // end if
+         break;
+ #if defined(EVP_PKEY_ED25519)
+     case DKIM_KEY_TYPE_ED25519:
+-        if (EVP_PKEY_ED25519 != EVP_PKEY_type(self->pkey->type)) {
++        if (EVP_PKEY_ED25519 != EVP_PKEY_base_id(self->pkey) {
+             DkimLogPermFail
+                 ("key-k-tag and key-p-tag doesn't match: domain=%s, keyalg=0x%x, keytype=0x%x",
+-                 domain, self->keytype, EVP_PKEY_type(self->pkey->type));
++                 domain, self->keytype, EVP_PKEY_base_id(self->pkey));
+             DkimPublicKey_free(self);
+             return DSTAT_PERMFAIL_PUBLICKEY_TYPE_MISMATCH;
+         }   // end if
+@@ -850,7 +851,7 @@ DkimPublicKey_lookup(const DkimVerificationPolicy *policy, const DkimSignature *
+     DkimStatus lookup_dstat = DkimPublicKey_lookupImpl(policy, signature, resolver, publickey);
+     if (DSTAT_OK == lookup_dstat) {
+         // check the key length
+-        switch (EVP_PKEY_type((*publickey)->pkey->type)) {
++        switch (EVP_PKEY_base_id((*publickey)->pkey)) {
+         case EVP_PKEY_RSA:
+             if ((int) policy->min_rsa_key_length > EVP_PKEY_bits((*publickey)->pkey)) {
+                 DkimLogPermFail

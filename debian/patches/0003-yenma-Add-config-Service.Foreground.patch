@@ -1,0 +1,161 @@
+From: Kasumi Hanazuki <kasumi@rollingapple.net>
+Date: Thu, 22 Mar 2018 23:28:44 +0900
+Subject: yenma: Add config Service.Foreground
+
+---
+ common/daemon_stuff.c | 65 +++++++++++++++++++++++++++------------------------
+ common/daemon_stuff.h |  2 +-
+ yenma/yenma.c         |  6 ++---
+ yenma/yenmaconfig.c   |  3 +++
+ yenma/yenmaconfig.h   |  1 +
+ 5 files changed, 42 insertions(+), 35 deletions(-)
+
+diff --git a/common/daemon_stuff.c b/common/daemon_stuff.c
+index 3da9818..77f7325 100644
+--- a/common/daemon_stuff.c
++++ b/common/daemon_stuff.c
+@@ -298,6 +298,7 @@ seteuidgid(const char *username, const char **errstr)
+ 
+ /**
+  * プロセスを daemonize する
++ * @param foreground 真の場合, ctty からデタッチするための double fork() を行わない
+  * @param user NULL でない場合, 指定したユーザーが所属するグループに setegid() し,
+  *             指定したユーザーに seteuid() する.
+  * @param rootdir NULL でない場合, 指定されたディレクトリに chdir する.
+@@ -305,7 +306,7 @@ seteuidgid(const char *username, const char **errstr)
+  * @return 成功した場合は 0, 失敗した場合は -1
+  */
+ int
+-daemon_init(const char *user, const char *rootdir, const char **errstr)
++daemon_init(bool foreground, const char *user, const char *rootdir, const char **errstr)
+ {
+     // core サイズの soft/hard limit を unlimited にする
+     struct rlimit rlim;
+@@ -331,39 +332,41 @@ daemon_init(const char *user, const char *rootdir, const char **errstr)
+ #endif
+     }   // end if
+ 
+-    // 自分が既にプロセスグループリーダーである場合は setsid() が失敗するので, まず fork()
+-    pid_t pid = fork();
+-    if (0 != pid) {
+-        exit(EX_OK);    // parent terminates
+-    }   // end if
+-    // この時点で子プロセス側はプロセスグループリーダーではないことが保証される
+-
+-    // セッションリーダーであり, コントロールターミナルを持たない状態になる
+-    setsid();
+-
+-    // セッションリーダーが終了する際, 全ての子プロセスに SIGHUP が送られるのでそれを無視する
+-    struct sigaction act, oact;
+-    act.sa_handler = SIG_IGN;
+-    sigemptyset(&act.sa_mask);
+-    sigaddset(&act.sa_mask, SIGHUP);
+-    act.sa_flags = 0;
+-    if (sigaction(SIGHUP, &act, &oact) < 0) {
+-        SETDEREF(errstr, "sigaction failed");
+-        return -1;
+-    }   // end if
++    if (!foreground) {
++        // 自分が既にプロセスグループリーダーである場合は setsid() が失敗するので, まず fork()
++        pid_t pid = fork();
++        if (0 != pid) {
++            exit(EX_OK);    // parent terminates
++        }   // end if
++        // この時点で子プロセス側はプロセスグループリーダーではないことが保証される
++
++        // セッションリーダーであり, コントロールターミナルを持たない状態になる
++        setsid();
++
++        // セッションリーダーが終了する際, 全ての子プロセスに SIGHUP が送られるのでそれを無視する
++        struct sigaction act, oact;
++        act.sa_handler = SIG_IGN;
++        sigemptyset(&act.sa_mask);
++        sigaddset(&act.sa_mask, SIGHUP);
++        act.sa_flags = 0;
++        if (sigaction(SIGHUP, &act, &oact) < 0) {
++            SETDEREF(errstr, "sigaction failed");
++            return -1;
++        }   // end if
+ 
+-    pid = fork();
+-    if (0 != pid) { // this generates SIGHUP
+-        exit(EX_OK);    // parent terminates
+-    }   // end if
++        pid = fork();
++        if (0 != pid) { // this generates SIGHUP
++            exit(EX_OK);    // parent terminates
++        }   // end if
+ 
+-    // この時点で子プロセス側はセッションリーダーでないことが保証される
+-    // 以後ターミナルデバイスを開いても, そのターミナルはコントロールターミナルにはならない
++        // この時点で子プロセス側はセッションリーダーでないことが保証される
++        // 以後ターミナルデバイスを開いても, そのターミナルはコントロールターミナルにはならない
+ 
+-    if (0 > sigaction(SIGHUP, &oact, &act)) {   // recover signal mask
+-        SETDEREF(errstr, "sigaction failed");
+-        return -1;
+-    }   // end if
++        if (0 > sigaction(SIGHUP, &oact, &act)) {   // recover signal mask
++            SETDEREF(errstr, "sigaction failed");
++            return -1;
++        }   // end if
++    }
+ 
+     if (rootdir) {
+         SKIP_EINTR(chdir(rootdir)); // change working directory
+diff --git a/common/daemon_stuff.h b/common/daemon_stuff.h
+index 927cf31..754206d 100644
+--- a/common/daemon_stuff.h
++++ b/common/daemon_stuff.h
+@@ -21,7 +21,7 @@ extern "C" {
+ typedef struct PidFile PidFile;
+ 
+ extern int close_tty(void);
+-extern int daemon_init(const char *user, const char *rootdir, const char **errstr);
++extern int daemon_init(bool foreground, const char *user, const char *rootdir, const char **errstr);
+ extern int setuidgid(const char *username, const char **errstr);
+ extern int seteuidgid(const char *username, const char **errstr);
+ 
+diff --git a/yenma/yenma.c b/yenma/yenma.c
+index 96c1de1..ec868f7 100644
+--- a/yenma/yenma.c
++++ b/yenma/yenma.c
+@@ -167,9 +167,9 @@ main(int argc, char **argv)
+     }   // end if
+ 
+     // setuid & daemonize
+-    if (0 > daemon_init(yenmacfg->service_user, yenmacfg->service_chdir, &errstr)) {
+-        LogError("%s: user=%s, rootdir=%s, errno=%s", NNSTR(errstr), yenmacfg->service_user,
+-                 yenmacfg->service_chdir, strerror(errno));
++    if (0 > daemon_init(yenmacfg->service_foreground, yenmacfg->service_user, yenmacfg->service_chdir, &errstr)) {
++      LogError("%s: foreground=%d, user=%s, rootdir=%s, errno=%s", NNSTR(errstr), (int)yenmacfg->service_foreground,
++               yenmacfg->service_user, yenmacfg->service_chdir, strerror(errno));
+         exit(EX_UNAVAILABLE);
+     }   // end if
+ 
+diff --git a/yenma/yenmaconfig.c b/yenma/yenmaconfig.c
+index 1e1e927..fdcc48d 100644
+--- a/yenma/yenmaconfig.c
++++ b/yenma/yenmaconfig.c
+@@ -59,6 +59,9 @@ static const ConfigEntry yenma_config_table[] = {
+     {"Service.HoldTtyOpen", CONFIG_TYPE_BOOLEAN, "false",
+      offsetof(YenmaConfig, service_hold_tty_open), NULL},
+ 
++    {"Service.Foreground", CONFIG_TYPE_BOOLEAN, "false",
++     offsetof(YenmaConfig, service_foreground), NULL},
++
+     {"Service.ExclusionBlocks", CONFIG_TYPE_STRING, NULL,
+      offsetof(YenmaConfig, service_exclusion_blocks), NULL},
+ 
+diff --git a/yenma/yenmaconfig.h b/yenma/yenmaconfig.h
+index 3622ffe..0f53307 100644
+--- a/yenma/yenmaconfig.h
++++ b/yenma/yenmaconfig.h
+@@ -34,6 +34,7 @@ typedef struct YenmaConfig {
+     char *service_controlsocket;
+     time_t service_graceful_shutdown_timeout;
+     bool service_hold_tty_open;
++    bool service_foreground;
+     char *service_exclusion_blocks;
+     int logging_facility;
+     int logging_mask;
