@@ -1,0 +1,42 @@
+version: 2
+
+jobs:
+  build_squeeze:
+    docker:
+      - image: debian:squeeze
+    steps:
+      - checkout
+      - run: sed -i 's|http://httpredir.debian.org/debian|http://archive.debian.org/debian|; /updates/d' /etc/apt/sources.list
+      - run: apt-get update -qq -o Acquire::Check-Valid-Until=false
+      - run: apt-get install -y --force-yes autoconf automake libtool make gcc
+      - run: apt-get install -y --force-yes libmilter-dev libssl-dev libldns-dev
+      - run: autoreconf -i
+      - run: ./configure LDFLAGS="-L/usr/lib/libmilter"
+      - run: make clean && make -j$(nproc)
+      - run: make install
+      - run: ldconfig && ldd /usr/local/libexec/yenma
+  build_stretch:
+    docker:
+      - image: debian:stretch
+    steps: &steps_debian
+      - checkout
+      - run: apt -qq update
+      - run: apt install -qy --no-install-recommends autoconf automake libtool make gcc
+      - run: apt install -qy --no-install-recommends libmilter-dev libssl-dev libldns-dev
+      - run: autoreconf -i
+      - run: ./configure
+      - run: make clean && make -j$(nproc)
+      - run: make install
+      - run: ldconfig && ldd /usr/local/libexec/yenma
+  build_jessie:
+    docker:
+      - image: debian:jessie
+    steps: *steps_debian
+
+workflows:
+  version: 2
+  build:
+    jobs:
+      - build_squeeze
+      - build_stretch
+      - build_jessie
