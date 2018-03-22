@@ -1,0 +1,160 @@
+From: Kasumi Hanazuki <kasumi@rollingapple.net>
+Date: Fri, 23 Mar 2018 01:23:23 +0900
+Subject: systemd
+
+---
+ common/socketlistener.c |  5 ++++
+ configure.ac            |  9 +++++++
+ yenma/yenma.c           |  8 +++++++
+ yenma/yenmaconfig.c     | 62 +++++++++++++++++++++++++++++++++++++++++++++++++
+ 4 files changed, 84 insertions(+)
+
+diff --git a/common/socketlistener.c b/common/socketlistener.c
+index 1d9ec7e..0308c31 100644
+--- a/common/socketlistener.c
++++ b/common/socketlistener.c
+@@ -194,6 +194,11 @@ SocketListener_listenUnix(const char *sockpath, int backlog, int *fd)
+ int
+ SocketListener_listen(const char *sockaddr, int backlog, int *fd)
+ {
++    if (0 == strncasecmp(sockaddr, "fd:", 3)) {
++        errno = 0;
++        *fd = strtol(sockaddr + 3, NULL, 0);
++        return errno == 0 ? 0 : EAI_SYSTEM;
++    }
+     if (0 == strncasecmp(sockaddr, "inet:", 5)) {
+         return SocketListener_dispatchInetListener(AF_INET, sockaddr + 5, backlog, fd);
+     } else if (0 == strncasecmp(sockaddr, "inet6:", 6)) {
+diff --git a/configure.ac b/configure.ac
+index 1e64353..1ae60bb 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -110,6 +110,15 @@ AC_ARG_WITH(libwrap,
+     AC_CHECK_LIB(wrap, hosts_access, [], [AC_MSG_ERROR(libwrap not found)])
+ )
+ 
++AC_ARG_WITH(systemd,
++    AS_HELP_STRING([--with-systemd],[Enable systemd integration]),
++    [
++        AC_CHECK_LIB(systemd, sd_notify, [], [AC_MSG_ERROR(libsystemd not found or not available)])
++        AC_CHECK_HEADER(systemd/sd-daemon.h, [], [AC_MSG_ERROR(systemd/sd-daemon.h not found or not available)])
++        AC_CHECK_FUNCS(sd_listen_fds_with_names)
++        AC_DEFINE(HAVE_SYSTEMD, [1], [Define to 1 to enable systemd integration])
++    ], [])
++
+ expanded_sysconfdir=`eval echo "${sysconfdir}"`
+ dnl autoconf 2.70 or later will support ${runstatedir}
+ expanded_runstatedir=`eval echo "${localstatedir}/run"`
+diff --git a/yenma/yenma.c b/yenma/yenma.c
+index ec868f7..4c11ccb 100644
+--- a/yenma/yenma.c
++++ b/yenma/yenma.c
+@@ -37,6 +37,10 @@
+ #include <tcpd.h>
+ #endif
+ 
++#ifdef HAVE_SYSTEMD
++#include <systemd/sd-daemon.h>
++#endif
++
+ #include "ptrop.h"
+ #include "stdaux.h"
+ #include "loghandler.h"
+@@ -208,6 +212,10 @@ main(int argc, char **argv)
+ 
+     LogNotice("yenma " YENMA_VERSION_INFO " starting up");  // for syslog
+ 
++#ifdef HAVE_SYSTEMD
++    sd_notify(0, "READY=1");
++#endif
++
+     // milter main function
+     int smfi_main_status = smfi_main();
+ 
+diff --git a/yenma/yenmaconfig.c b/yenma/yenmaconfig.c
+index fdcc48d..877cb50 100644
+--- a/yenma/yenmaconfig.c
++++ b/yenma/yenmaconfig.c
+@@ -25,6 +25,10 @@
+ 
+ #include <libmilter/mfapi.h>
+ 
++#ifdef HAVE_SYSTEMD
++#include <systemd/sd-daemon.h>
++#endif
++
+ #include "ptrop.h"
+ #include "loghandler.h"
+ #include "keywordmap.h"
+@@ -230,6 +234,49 @@ YenmaConfig_free(YenmaConfig *self)
+     free(self);
+ }   // end function: YenmaConfig_free
+ 
++#if defined(HAVE_SYSTEMD)
++static int
++YenmaConfig_receiveFd(char **ppath) {
++    static char **fdnames;
++
++    if (!fdnames) {
++        int ret = sd_listen_fds_with_names(1, &fdnames);
++        if (ret < 0) {
++            return ret;
++        }
++    }
++
++    assert(*ppath);
++    if (strncmp("systemd:", *ppath, 8) != 0) {
++        return 0;
++    }
++
++    if (!fdnames) {
++        goto not_found;
++    }
++
++    for (int i = 0; fdnames[i]; ++i) {
++        if (strcmp(&(*ppath)[8], fdnames[i]) == 0) {
++            int fd = SD_LISTEN_FDS_START + i;
++            char *new_path;
++
++            if (asprintf(&new_path, "fd:%d", fd) == -1) {
++                return -ENOMEM;
++            }
++            free(*ppath);
++            *ppath = new_path;
++
++            LogInfo("Received file descriptor %s as fd=%d", *ppath, fd);
++            return 0;
++        }
++    }
++
++not_found:
++    LogError("File descriptor %s not passed by the system manager", *ppath);
++    return -ENOENT;
++}
++#endif
++
+ bool
+ YenmaConfig_load(YenmaConfig *self, const char *filename)
+ {
+@@ -254,6 +301,21 @@ YenmaConfig_load(YenmaConfig *self, const char *filename)
+         LogInfo("authserv-id is set to the hostname: authserv-id=%s", self->authresult_servid);
+     }   // end if
+ 
++#ifdef HAVE_SYSTEMD
++    if (self->service_controlsocket) {
++        int err = YenmaConfig_receiveFd(&self->service_controlsocket);
++        if (err < 0) {
++            return false;
++        }
++    }
++    if (self->milter_socket) {
++        int err = YenmaConfig_receiveFd(&self->milter_socket);
++        if (err < 0) {
++            return false;
++        }
++    }
++#endif
++
+     return true;
+ }   // end function: YenmaConfig_load
+ 

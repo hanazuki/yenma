@@ -1,3 +1,5 @@
 /usr/bin
 /usr/sbin
 debian/yenma.conf /etc/
+debian/yenma-control.socket /lib/systemd/system
+debian/yenma-milter.socket /lib/systemd/system

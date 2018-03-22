@@ -2,6 +2,7 @@
 /tmp
 /*.debhelper
 /debhelper-*
+/*.log
 /autoreconf.before
 /autoreconf.after
 /files

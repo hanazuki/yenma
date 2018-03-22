@@ -4,10 +4,10 @@ Documentation=https://github.com/iij/yenma
 After=nss-lookup.target
 
 [Service]
-Type=forking
-PIDFile=/run/yenma/yenma.pid
+Type=notify
 User=yenma
 RuntimeDirectory=yenma
+RuntimeDirectoryPreserve=yes
 ExecStart=/usr/sbin/yenma -c /etc/yenma.conf
 
 [Install]

@@ -1,0 +1,14 @@
+[Unit]
+Description=Control socket for YENMA
+
+[Socket]
+SocketUser=yenma
+SocketGroup=yenma
+SocketMode=0660
+ListenStream=/run/yenma/yenma.ctl
+
+Service=yenma.service
+FileDescriptorName=control
+
+[Install]
+WantedBy=sockets.target

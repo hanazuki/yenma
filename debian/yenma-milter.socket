@@ -1,0 +1,14 @@
+[Unit]
+Description=Milter socket for YENMA
+
+[Socket]
+SocketUser=yenma
+SocketGroup=yenma
+SocketMode=0660
+ListenStream=/run/yenma/yenma.sock
+
+Service=yenma.service
+FileDescriptorName=milter
+
+[Install]
+WantedBy=sockets.target
