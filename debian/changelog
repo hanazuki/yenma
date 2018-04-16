@@ -1,3 +1,10 @@
+yenma (2.0.0~rc1+git20180329-1) UNRELEASED; urgency=medium
+
+  * New upstream version.
+  * Remove OpenSSL-1.1 patch (merged in upstrem).
+
+ -- Kasumi Hanazuki <kasumi@rollingapple.net>  Mon, 16 Apr 2018 10:03:20 +0900
+
 yenma (2.0.0~beta4+git20180314-1) UNRELEASED; urgency=medium
 
   * Initial packaging.
