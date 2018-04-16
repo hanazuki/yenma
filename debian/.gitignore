@@ -1,6 +1,6 @@
 /generated
 /tmp
-/*.debhelper
+/*.debhelper*
 /debhelper-*
 /*.log
 /autoreconf.before
