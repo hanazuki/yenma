@@ -1,0 +1,75 @@
+From: Kasumi Hanazuki <kasumi@rollingapple.net>
+Date: Mon, 16 Apr 2018 13:56:51 +0900
+Subject: Do not shutdown milter socket
+
+---
+ common/listenerthread.c | 28 +++++++++++++---------------
+ 1 file changed, 13 insertions(+), 15 deletions(-)
+
+diff --git a/common/listenerthread.c b/common/listenerthread.c
+index 6349475..47b72d6 100644
+--- a/common/listenerthread.c
++++ b/common/listenerthread.c
+@@ -67,14 +67,14 @@ sock_unlink(int sockfd)
+ static int
+ sock_shutdown(int sockfd, int how)
+ {
+-    (void) sock_unlink(sockfd);
++//    (void) sock_unlink(sockfd);
+     return shutdown(sockfd, how);
+ }   // end function: sock_shutdown
+ 
+ static int
+ sock_close(int sockfd)
+ {
+-    (void) sock_unlink(sockfd);
++//    (void) sock_unlink(sockfd);
+     int close_stat;
+     SKIP_EINTR(close_stat = close(sockfd));
+     return close_stat;
+@@ -99,20 +99,13 @@ ListenerThread_shutdown(ListenerThread *self)
+         self->listenfd = -1;    // 先にフィールドを潰す
+         LogDebug("ListenerThread shutting down: listenfd=%d", listenfd);
+ 
+-        // 他のスレッドが accept() しているディスクリプタを閉じて accept() に割り込む
+-        int ret;
+-#if defined(__linux)
+-        ret = sock_shutdown(listenfd, SHUT_RDWR);   // listening socket を強制的に叩き落とす
+-        (void) sock_close(listenfd);
+-#elif defined(__sun)
+-        ret = sock_close(listenfd);
+-#else // Linux と Solaris 以外は試していない
+-#warning "shutdown process may block"
+-        ret = sock_close(listenfd);
+-#endif
+-
++        int ret = pthread_cancel(self->tid);
+         if (0 != ret) {
+-            LogError("socket shutdown failed: listenfd=%d, errno=%s", listenfd, strerror(errno));
++            LogError("pthread_cancel failed: tid=%u, errno=%s", (unsigned int) self->tid, strerror(ret));
++        }
++
++        if (0 != sock_close(listenfd)) {
++            LogError("socket close failed: listenfd=%d, errno=%s", listenfd, strerror(errno));
+         }   // end if
+     }   // end if
+ 
+@@ -179,6 +172,9 @@ ListenerThread_main(void *arg)
+             }   // end if
+             continue;
+         }   // end if
++
++        (void) pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
++
+         LogDebug("ListenerThread accepting: connfd=%d", connfd);
+ 
+         // ハンドラをコールバック
+@@ -186,6 +182,8 @@ ListenerThread_main(void *arg)
+         SKIP_EINTR(close(connfd));
+         connfd = -1;
+ 
++        (void) pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
++
+         if (0 != ret) {
+             LogDebug("ListenerThread closing by callback handelr: ret=%d", ret);
+             break;

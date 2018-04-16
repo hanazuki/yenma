@@ -1,3 +1,4 @@
 usr-sbin-yenma.patch
 Service.Foreground.patch
 systemd.patch
+no-shutdown.patch
