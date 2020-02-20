@@ -591,35 +591,38 @@ yenma_dmarcv_eom(YenmaSession *session)
             DkimStatus dmarc_stat =
                 DmarcAligner_new(session->ctx->public_suffix, session->resolver, &aligner);
             if (DSTAT_OK != dmarc_stat) {
+                InetMailboxArray_free(authors);
                 LogNoResource();
                 return false;
             }   // end if
             if (0 > PtrArray_append(session->aligners, aligner)) {
                 DmarcAligner_free(aligner);
+                InetMailboxArray_free(authors);
                 LogNoResource();
                 return false;
             }   // end if
             DmarcScore score =
                 DmarcAligner_check(aligner, author, session->verifier, session->spfevaluator);
             if (DMARC_SCORE_NULL == score) {
+                InetMailboxArray_free(authors);
                 LogWarning("DmarcAligner_check failed");
                 return false;
             }   // end if
             const char *score_symbol = DmarcEnum_lookupScoreByValue(score);
             (void) AuthResult_appendMethodSpec(session->authresult, AUTHRES_METHOD_DMARC,
                                                score_symbol);
-            (void) AuthResult_appendPropSpecWithAddrSpec(session->authresult, AUTHRES_PTYPE_HEADER,
-                                                         AUTHRES_PROPERTY_FROM, author);
+            (void) AuthResult_appendPropSpecWithToken(session->authresult, AUTHRES_PTYPE_HEADER,
+                                                      AUTHRES_PROPERTY_FROM, InetMailbox_getDomain(author));
             LogEvent("DMARC",
                      AUTHRES_METHOD_DMARC "=%s, " AUTHRES_PTYPE_HEADER "." AUTHRES_PROPERTY_FROM
-                     "=%s@%s", score_symbol, InetMailbox_getLocalPart(author),
-                     InetMailbox_getDomain(author));
+                     "=%s", score_symbol, InetMailbox_getDomain(author));
 
             if (!author_found) {
                 session->validated_result->dmarc_score = score;
                 author_found = true;
             }   // end if
         }   // end for
+        InetMailboxArray_free(authors);
     }   // end for
 
     if (!author_found) {
