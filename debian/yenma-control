@@ -1,0 +1,61 @@
+#!/bin/bash
+set -euo pipefail
+
+NC=/bin/nc.openbsd
+SOCKET=/run/yenma/yenma.ctl
+
+usage() {
+    cat <<EOF
+Usage: yenma-control COMMAND
+Commands:
+  reload             reload the config file
+  shutdown           shutdown the server immediately
+  graceful-shutdown  gracefully shutdown the server
+  show-counter       show statistics
+  reset-counter      show statistics and reset them
+EOF
+    exit 2
+}
+
+send_query() {
+    query="$1"
+    ${NC} -NU "$SOCKET" <<< "$query"
+}
+
+send_command() {
+    command="$1"
+
+    response=$(${NC} -NU "$SOCKET" <<< "$command")
+    response_code=$(tail -n 1 <<< "$response" | cut -d ' ' -f 1)
+
+    if [[ $response_code != 200 ]]; then
+        echo >&2 "$response"
+        exit 1
+    else
+        echo "$response"
+    fi
+}
+
+if [[ $# -ne 1 ]]; then
+   usage
+fi
+
+action=$1
+
+case "$action" in
+    reload|shutdown)
+        send_command "${action^^}"
+        ;;
+
+    graceful-shutdown)
+        send_command "GRACEFUL"
+        ;;
+
+    show-counter|reset-counter)
+        send_query "${action^^}"
+        ;;
+
+    *)
+        usage
+        ;;
+esac

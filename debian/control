@@ -19,6 +19,7 @@ Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends},
   libsauth0 (= ${binary:Version}),
   adduser,
+  netcat-openbsd,
   publicsuffix
 Description: milter program for the domain authentication technologies
  YENMA authenticates sender's address with SPF, Sender ID, DKIM and DKIM

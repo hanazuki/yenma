@@ -10,6 +10,8 @@ User=_yenma
 RuntimeDirectory=yenma
 RuntimeDirectoryPreserve=yes
 ExecStart=/usr/sbin/yenma -c /etc/yenma.conf
+ExecReload=/usr/sbin/yenma-control reload
+ExecStop=/usr/sbin/yenma-control graceful-shutdown
 
 [Install]
 WantedBy=multi-user.target
