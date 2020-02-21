@@ -1,7 +1,8 @@
 [Unit]
 Description=YENMA milter for mail sender authentication
 Documentation=https://github.com/iij/yenma
-After=nss-lookup.target
+Requires=yenma-control.socket yenma-milter.socket
+After=nss-lookup.target yenma-control.socket yenma-milter.socket
 
 [Service]
 Type=notify
