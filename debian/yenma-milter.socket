@@ -2,8 +2,8 @@
 Description=Milter socket for YENMA
 
 [Socket]
-SocketUser=yenma
-SocketGroup=yenma
+SocketUser=_yenma
+SocketGroup=_yenma
 SocketMode=0660
 ListenStream=/run/yenma/yenma.sock
 

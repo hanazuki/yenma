@@ -1,11 +1,9 @@
 #!/bin/sh
 set -e
 
-if [ "$1" = "configure" ]; then
-  if ! getent passwd yenma >/devnull; then
+if [ "$1" = configure ]; then
     adduser --system --group --home /run/yenma --gecos "YENMA" \
-            --no-create-home --disabled-login --quiet yenma
-  fi
+            --no-create-home --disabled-login --force-badname _yenma
 fi
 
 #DEBHELPER#
