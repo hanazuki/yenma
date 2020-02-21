@@ -4,7 +4,7 @@ Source: https://github.com/iij/yenma
 
 Files: *
 Copyright: 2008-2014 Internet Initiative Japan Inc.  All rights reserved.
-License: BSD-2-clause-IIJ
+License: BSD-2-Clause-IIJ
  Redistribution and use in source and binary forms, with or without
  modification, are permitted provided that the following conditions are met:
  1. Redistributions of source code must retain the above copyright
@@ -25,8 +25,10 @@ License: BSD-2-clause-IIJ
  SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 Files: debian/*
-Copyright: 2018 Kasumi Hanazuki <kasumi@rollingapple.net>
-License: BSD-2-clause
+Copyright: 2018-2020 Kasumi Hanazuki <kasumi@rollingapple.net>
+License: BSD-2-Clause
+
+License: BSD-2-Clause
  Redistribution and use in source and binary forms, with or without
  modification, are permitted provided that the following conditions are met:
  1. Redistributions of source code must retain the above copyright
